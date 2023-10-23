@@ -1,6 +1,7 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.4)
 PROJECT(ZED_openGL)
-
+include(FindPkgConfig)
+pkg_check_modules(openvr REQUIRED IMPORTED_TARGET openvr)
 option(LINK_SHARED_ZED "Link with the ZED SDK shared executable" ON)
 
 if (NOT LINK_SHARED_ZED AND MSVC)
@@ -25,7 +26,7 @@ IF(NOT WIN32)
 ENDIF()
 
 include_directories(${ZED_INCLUDE_DIRS})
-include_directories(${GLUT_INCLUDE_PATH})
+include_directories(${GLUT_INCLUDE_DIRS})
 include_directories(${GLEW_INCLUDE_DIRS})
 include_directories(${OPENGL_INCLUDE_DIRS})
 include_directories(${CUDA_INCLUDE_DIRS})
@@ -49,5 +50,6 @@ TARGET_LINK_LIBRARIES(${PROJECT_NAME}
                         ${SPECIAL_OS_LIBS} 
                         ${ZED_LIBS} 
                         ${OPENGL_LIBRARIES}
-                        ${GLUT_LIBRARY}
-                        ${GLEW_LIBRARIES})
+			${GLUT_LIBRARIES}
+                        ${GLEW_LIBRARIES}
+                        PkgConfig::openvr)
