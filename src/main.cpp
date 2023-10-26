@@ -45,8 +45,25 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+// Body tracking and point cloud saving
+// #include "GLViewer.hpp"
+#include "SK_Serializer.hpp"
+
 using namespace sl;
 using namespace std;
+
+// Ressources declaration for body tracking 
+sl::Mat point_cloud; 
+nlohmann::json bodies_json_file;
+Bodies bodies;
+std::string outfileName; 
+sl::String pointcloudfileName; 
+
+//Resources camera ZED
+Camera zed;
+Mat gpuLeftImage;
+Mat gpuDepthImage;
+Mat gpuRightImage;
 
 // Resource declarations (texture, GLSL fragment shader, GLSL program...)
 GLuint imageTex_r;
@@ -67,10 +84,6 @@ cudaGraphicsResource* pcuImageLeftRes;
 cudaGraphicsResource* pcuImageRightRes;
 cudaGraphicsResource* pcuDepthRes;
 
-Camera zed;
-Mat gpuLeftImage;
-Mat gpuDepthImage;
-Mat gpuRightImage;
 
 // Simple fragment shader that switch red and blue channels (RGBA -->BGRA)
 string strFragmentShad = ("uniform sampler2D texImage;\n"
@@ -78,41 +91,23 @@ string strFragmentShad = ("uniform sampler2D texImage;\n"
         " vec4 color = texture2D(texImage, gl_TexCoord[0].st);\n"
         " gl_FragColor = vec4(color.b, color.g, color.r, color.a);\n}");
 
-// Simple fragment shader that switch red and blue channels (RGBA -->BGRA)
-// string strFragmentShadTransp = ("uniform sampler2D texImage;\n"
-//         " void main() {\n"
-//         " vec4 color = texture2D(texImage, gl_TexCoord[0].st);\n"
-//         " color.a = 0.3; \n"
-//         " gl_FragColor = vec4(1, 0, 0, color.a);\n}");
-
-double alpha = 0; 
-std::vector<std::string> strFragmentShadTransp(4);
-
-void changeColor(char *alpha, int i)
-{
-    strFragmentShadTransp[i] = std::string("uniform sampler2D texImage;\n"
-        " void main() {\n"
-        " vec4 color = texture2D(texImage, gl_TexCoord[0].st);\n"
-        " color.a = ") + std::string(alpha) + std::string("; \n"
-        " gl_FragColor = vec4(1, 0, 0, color.a);\n}"); 
-
-    GLuint transparencyShader = glCreateShader(GL_FRAGMENT_SHADER); //fragment shader
-    const char* pszConstStringTransp = strFragmentShadTransp[i].c_str();
-    glShaderSource(transparencyShader, 1, (const char**) &pszConstStringTransp, NULL);
-
-    transparencyPogram[i] = glCreateProgram(); 
-    glAttachShader(transparencyPogram[i], transparencyShader);
-
-    glLinkProgram(transparencyPogram[i]);
-    GLint link_status_transp = GL_FALSE;
-    glGetProgramiv(transparencyPogram[i], GL_LINK_STATUS, &link_status_transp);
-}
-
-
 // Main loop for acquisition and rendering : 
 // * grab from the ZED SDK
 // * Map cuda and opengl resources and copy the GPU buffer into a CUDA array
 // * Use the OpenGL texture to render on the screen
+void bodytracking() {
+if (zed.grab() == ERROR_CODE::SUCCESS)
+    {
+        // Retrieve Detected Human Bodies
+        zed.retrieveBodies(bodies);
+
+        // Serialize dected bodies into a json container
+        bodies_json_file[std::to_string(bodies.timestamp.getMilliseconds())] = sk::serialize(bodies);
+
+        // save point cloud 
+        zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
+    }
+}
 
 void draw() {
     
@@ -175,76 +170,6 @@ void draw() {
         glTexCoord2f(0.0, 0.0);
         glVertex2f(-1.0, 1.0);
         glEnd();
-        // glBegin(GL_QUADS); //half screen 
-        // glTexCoord2f(0.0, 1.0);
-        // glVertex2f(-1.0, -1.0);
-        // glTexCoord2f(1.0, 1.0);
-        // glVertex2f(0.0, -1.0);
-        // glTexCoord2f(1.0, 0.0);
-        // glVertex2f(0.0, 1.0);
-        // glTexCoord2f(0.0, 0.0);
-        // glVertex2f(-1.0, 1.0);
-        // glEnd();
-
-        //glUseProgram(program);
-
-        // // Depth image on right side of the screen
-        // glBindTexture(GL_TEXTURE_2D, imageTex_r);
-        // glBegin(GL_QUADS);
-        // glTexCoord2f(0.0, 1.0);
-        // glVertex2f(0.0, -1.0);
-        // glTexCoord2f(1.0, 1.0);
-        // glVertex2f(1.0, -1.0);
-        // glTexCoord2f(1.0, 0.0);
-        // glVertex2f(1.0, 1.0);
-        // glTexCoord2f(0.0, 0.0);
-        // glVertex2f(0.0, 1.0);
-        // glEnd();
-        
-        // glUseProgram(transparencyPogram[2]); 
-        // // RED Rectangles 
-        // glBindTexture(GL_TEXTURE_2D, redimageTex); // Left rectangle
-        // glBegin(GL_TRIANGLES); 
-        // glVertex2f(-1.0, 1.0);//triangle 1
-        // glVertex2f(-0.9, 1);
-        // glVertex2f(-1, -1);
-        // glVertex2f(-0.9, 1.0);//triange 2
-        // glVertex2f(-1.0, -1.0);
-        // glVertex2f(-0.9, -1.0);
-        // glEnd(); 
-
-        // glUseProgram(transparencyPogram[3]); 
-        // glBindTexture(GL_TEXTURE_2D, redimageTex); // Right rectangle
-        // glBegin(GL_TRIANGLES); 
-        // glVertex2f(0.9, 1.0);
-        // glVertex2f(1.0, 1.0);
-        // glVertex2f(0.9, -1.0);
-        // glVertex2f(1.0, 1.0);
-        // glVertex2f(0.9, -1.0);
-        // glVertex2f(1.0, -1.0);
-        // glEnd(); 
-
-        // glUseProgram(transparencyPogram[1]); 
-        // glBindTexture(GL_TEXTURE_2D, redimageTex); // Up rectangle
-        // glBegin(GL_TRIANGLES); 
-        // glVertex2f(-1.0, 1.0);
-        // glVertex2f(1.0, 1.0);
-        // glVertex2f(1.0, 0.9);
-        // glVertex2f(-1.0, 1.0);
-        // glVertex2f(-1.0, 0.9);
-        // glVertex2f(1.0, 0.9);
-        // glEnd(); 
-
-        // glUseProgram(transparencyPogram[0]); 
-        // glBindTexture(GL_TEXTURE_2D, redimageTex); // Down rectangle
-        // glBegin(GL_TRIANGLES); 
-        // glVertex2f(-1.0, -0.9);
-        // glVertex2f(-1.0, -1.0);
-        // glVertex2f(1.0, -1.0);
-        // glVertex2f(1.0, -1.0);
-        // glVertex2f(1.0, -0.9);
-        // glVertex2f(-1.0, -0.9);
-        // glEnd(); 
 
         // Swap
         glutSwapBuffers();
@@ -254,12 +179,45 @@ void draw() {
         glFlush();
         glFinish();  
     glutPostRedisplay();
+    bodytracking(); 
 }
 
+
 void close() {
+    
     gpuLeftImage.free();
     gpuDepthImage.free();
     zed.close();
+
+    //save point cloud 
+    point_cloud.write(pointcloudfileName);   
+    std::cout << "Save pointcloud data to " << pointcloudfileName << std::endl; 
+
+    //save body tracking data before closing
+    if (bodies_json_file.size())
+    {
+        std::ofstream file_out(outfileName);
+        file_out << std::setw(4) << bodies_json_file << std::endl;
+        file_out.close();
+        std::cout << "Successfully saved the body data to " << outfileName << std::endl;
+
+        // playback the recorded data
+        std::ifstream in(outfileName);
+        nlohmann::json skeletons_file;
+        in >> skeletons_file;
+        in.close();
+
+        // iterate over detected bodies
+        for (auto& it : skeletons_file.get<nlohmann::json::object_t>()) {
+            // deserialize current bodies
+            auto objs = sk::deserialize(it.second);
+        }
+    }
+    else
+        std::cout << "No body data to save." << std::endl;
+
+
+
     glDeleteShader(shaderF);
     glDeleteProgram(program);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -274,16 +232,18 @@ void keyPressedCallback(unsigned char c, int x, int y) {
 
 int main(int argc, char **argv) {
 
+    // Save file path 
     if (argc > 2) {
-        cout << "Only the path of a SVO can be passed in arg" << endl;
+        std::cout << "Only the path of a json can be passed in arg" << endl;
         return EXIT_FAILURE;
     }
-    // init glut
+    std::string path_output(argv[1]);
+
+    // Init glut
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
     
-    // Configure Window Size
-    // define display size
+    // Configure Window Size    
     int wnd_w = 720, wnd_h = 404;
     glutInitWindowSize(wnd_w *2, wnd_h);
 
@@ -295,29 +255,53 @@ int main(int argc, char **argv) {
     // Create Window
     glutCreateWindow("ZED OGL interop");
 
-    // init GLEW Library
+    // Init GLEW Library
     glewInit();
 
+    // Open and setup the ZED Camera (construct and Init)
     InitParameters init_parameters;
-    // Setup our ZED Camera (construct and Init)
-    if (argc == 2) // Use in SVO playback mode
+    if (argc == 2 && string(argv[1]).find(".svo") != string::npos){     // Use in SVO playback mode
+        std::cout << ".svo file input for playpack mode" << std::endl; 
         init_parameters.input.setFromSVOFile(String(argv[1]));
-
+    }
     init_parameters.depth_mode = DEPTH_MODE::PERFORMANCE; 
-    // init_parameters.depth_stabilization = false;  
+    init_parameters.depth_stabilization = false;  
     init_parameters.camera_resolution = RESOLUTION::HD1080;
+    init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Y_UP; // Opengl Coordinate system
     ERROR_CODE err = zed.open(init_parameters);
-
-    // ERRCODE display
     if (err != ERROR_CODE::SUCCESS) {
         cout << "ZED Opening Error: " << err << endl;
         zed.close();
         return EXIT_FAILURE;
     }
+
+    // enable positional tracking (with default parameters)
+    ERROR_CODE state = zed.enablePositionalTracking();
+    if (state != sl::ERROR_CODE::SUCCESS)
+    {
+        std::cout << "Error enable Positional Tracking" << state << std::endl;
+        return -1;
+    }
+
+    // define body tracking parameters
+    sl::BodyTrackingParameters body_tracking_parameters;
+    body_tracking_parameters.detection_model = BODY_TRACKING_MODEL::HUMAN_BODY_MEDIUM;
+    body_tracking_parameters.body_format = sl::BODY_FORMAT::BODY_34;
+    body_tracking_parameters.body_selection = sl::BODY_KEYPOINTS_SELECTION::UPPER_BODY;  
+    body_tracking_parameters.enable_tracking = true;
+    body_tracking_parameters.enable_body_fitting = false;
+    state = zed.enableBodyTracking(body_tracking_parameters);
+    if (state != sl::ERROR_CODE::SUCCESS)
+    {
+        std::cout << "Error enable Body Tracking" << state << std::endl;
+        return -1;
+    }
+    else {
+        std::cout << "Enable Body Tracking  : " << state << std::endl;
+    }
     
     // Get Image Size
     auto res_ = zed.getCameraInformation().camera_configuration.resolution;
-
     cudaError_t err1, err2, err3;
 
     // Create an OpenGL texture and register the CUDA resource on this texture for left image (8UC4 -- RGBA)
@@ -387,56 +371,16 @@ int main(int argc, char **argv) {
     glGetProgramiv(program, GL_LINK_STATUS, &link_status);
     if (link_status != GL_TRUE) return -2;
 
-   // Create the program for adjust transparency and colors of red rectangles
-    changeColor("0",0); 
-    changeColor("0",1); 
-    changeColor("0",2); 
-    changeColor("0",3); 
-    
-    // Set the uniform variable for texImage (sampler2D) to the texture unit (GL_TEXTURE0 by default --> id = 0)
-    glUniform1i(glGetUniformLocation(program, "test"), 0);
-    glUniform1i(glGetUniformLocation(transparencyPogram[0], "test1"), 0);
-    glUniform1i(glGetUniformLocation(transparencyPogram[1], "test2"), 0);
-    glUniform1i(glGetUniformLocation(transparencyPogram[2], "test3"), 0);
-    glUniform1i(glGetUniformLocation(transparencyPogram[3], "test4"), 0);
+    // Save body tracking and pointcloud data 
+    outfileName = path_output+".json";
+    std::string pointcloudfileName_std(path_output+"_point_cloud.ply"); 
+    pointcloudfileName = pointcloudfileName_std.c_str(); 
 
-
-    // int fdb;int fdf;int fdl;int fdr;
-    // // FIFO file path
-    // char * myfifo_back = "/tmp/myfifo_back";
-    // char * myfifo_front = "/tmp/myfifo_front";
-    // char * myfifo_left = "/tmp/myfifo_left";
-    // char * myfifo_right = "/tmp/myfifo_right";
-    // // Creating the named file(FIFO)
-    // // mkfifo(<pathname>,<permission>)
-    // char str_b[1024]; char str_f[1024]; char str_l[1024]; char str_r[1024]; 
-    // // First open in read only and read
-    // fdb = open(myfifo_back,O_RDONLY);
-    // fdf = open(myfifo_front,O_RDONLY);       
-    // fdl = open(myfifo_left,O_RDONLY);  
-    // fdr = open(myfifo_right,O_RDONLY);
-
-    // while(1)
-    // {   
-        // read(fdb, str_b, 1024);
-        // read(fdf, str_f, 1024);
-        // read(fdl, str_l, 1024);        
-        // read(fdr, str_r, 1024);
-        // changeColor(str_b,0);         changeColor(str_f,1); 
-        // changeColor(str_l,2);         changeColor(str_r,3); 
     // Start the draw loop and closing event function
     glutDisplayFunc(draw);
     glutCloseFunc(close);
     glutKeyboardFunc(keyPressedCallback);
     glutMainLoop();
-        // glutMainLoopEvent();
-        // glutKeyboardFunc(keyPressedCallback);
-        // close(fdb);     
-        // close(fdf);
-        // close(fdl);
-        // close(fdr);  
-    //do other stuff.
-    // }
- 
+
     return EXIT_SUCCESS;
 }
